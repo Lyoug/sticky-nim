@@ -1,88 +1,91 @@
-﻿'''Module d'intelligence artificielle pour le jeu du bâton
+﻿"""Artificial intelligence module for the Sticky-Nim game.
 
-    Exemple de partie avec 10 bâtons et prise maximale de 3 bâtons :
-    =====================================================================
-    Joueur   Action                          Plateau
-    =====================================================================
-             (Position de départ)            ||||||||||
-       1     Prend un bâton                  |||-||||||
-       2     Prend trois bâtons              |||-|---||
-       1     Prend deux bâtons               |---|---||
-       2     Prend un bâton                  |---|---|-
-       1     Ne peut prendre qu'un bâton     |---|-----
-       2     N'a pas le choix non plus       ----|-----
-       1     Obligé de prendre le dernier... ----------
-    =====================================================================
-    Et donc le joueur 1 a perdu.
+    -------------------------------- Notations ---------------------------------
 
-    Définitions/Notations :
-    - Configuration : une liste d'entiers (décroissants) qui décrit une
-      situation de jeu.
-      Par exemple, la partie montrée ci-dessus contient, dans l'ordre,
-      les configurations :
-      [10], [6, 3], [3, 2, 1], [2, 1, 1], [1, 1, 1], [1, 1], [1], []
-    - Configuration perdante (CP) :  une configuration telle que si un
-      joueur s'y trouve et que c'est son tour de jouer, il ne pourra
-      jamais gagner quoi qu'il fasse (du moins, à condition que son
-      adversaire joue correctement).
-      Exemple : [2, 2] est perdante : si c'est mon tour, je n'ai que deux
-      coups possibles :
-      - si je prends un bâton, mon adversaire, qui voit [2, 1], en prend
-        deux, puis il ne me reste que le dernier.
-      - si je prends deux bâtons, mon adversaire, qui voit [2], en prend
-        un, et il ne me reste que le dernier.
-      Dans tous les cas j'ai perdu.
+    A Configuration or config for short is a list of (decreasing) integers, that
+    summarizes a game situation. Each integer represents a group of adjacent
+    sticks.
+    Example game:
+    (For a more detailed commentary of this game, see the main module,
+    sticky_nim_console.py)
+    ===========================================
+    Player  →  Board       Configuration
+    ===========================================
+       -    →  ||||||||||  [10]
+       1    →  |||-||||||  [6, 3]
+       2    →  |||-|---||  [3, 2, 1]
+       1    →  --|-|---||  [2, 1, 1]
+       2    →  --|-|---|-  [1, 1, 1]
+       1    →  --|-|-----  [1, 1]
+       2    →  ----|-----  [1]
+       1    →  ----------  []  →  Player 1 lost
+    ===========================================
 
-    L'idée, pour être sûr de gagner, est de jouer un coup qui place
-    l'adversaire dans une configuration perdante (CP). L'intelligence
-    artificielle construit donc au départ la liste de toutes les CP, puis
-    quand on lui demande de jouer un coup, cherche s'il est possible
-    d'atteindre une CP depuis le plateau courant. Si oui, on joue un tel
-    coup, sinon, on en génère un au hasard.
-'''
+    An n-stick k-group Configuration is a configuration made of n sticks total,
+    that are divided into k groups. For instance, [6, 3] is a 9-stick 2-group
+    config.
 
-# TODO
-# - test du module plus propre, plus exhaustif, plus automatique
-# - différents niveaux de difficulté ? i.e :
-#   - parfait : ne peut perdre que contre un autre joueur parfait (c'est le
-#     niveau actuel)
-#   - ... niveaux intermédiaires ? cherche à obtenir une config symétrique ?
-#   - aléatoire
+    A Losing Configuration (LC) is a configuration such that if it is my turn to
+    play and I see this configuration on the board, I am bound to lose –
+    provided that my opponent makes no mistake.
+    Some LC examples:
+    - [1]: if I see this on my turn, I can only take the last stick: I lose
+      right away.
+    - [1, 1, 1]: I can only take one stick, leaving my opponent with [1, 1].
+      Then, they can only take one stick, leaving me with [1]. I lose.
+    - [2, 2]: I have two possible moves:
+      - if I take one stick (from any group of two), my opponent sees [2, 1],
+        takes the group of 2, and I am left with the last stick.
+      - if I take two sticks, my opponent sees [2], takes one stick from this
+        last group, and leaves me with [1].
+      In both cases I lose, so [2, 2] is an LC.
+    It can be noted that any configuration that is not losing is a winning
+    configuration.
+
+
+    --------------------------------- Strategy ---------------------------------
+
+    The idea to guarantee a win is to play a move that leaves your opponent in
+    a losing configuration (LC). This AI module thus first builds the list of
+    all possible LCs. Then, when asked for a move to play on a given board, it
+    looks for an LC that can be reached from this board. If it finds one, it
+    answers with a corresponding move. Else, it generates a random move.
+"""
 
 import random
 from mechanics import Board, Move
 
-# Interface avec l'extérieur :
-# - initialize permet à l'appelant de spécifier la taille du plateau et le
-#   nombre maximal de bâtons que l'on peut prendre à la fois. Doit être appelée
-#   avant de pouvoir générer des coups.
-# - laoding_needed renvoie True si un appel à initialize avec les mêmes
-#   paramètres nécessiterait des calculs supplémentaires.
-# - generate_move prend en entrée un Board, et renvoie un couple contenant :
-#   - un Move
-#   - un éventuel message (une chaine) destiné à l'interface utilisateur
-__all__ = ["initialize", "loading_needed", "generate_move"]
+# Interface:
+# - set_rules(board_size, max_take): set the board size and the maximum number
+#   of sticks that can be removed on a turn. This function must be called at
+#   least once before the module is able to generate moves.
+# - loading_needed(board_size, max_take): returns True if calling set_rules with
+#   these same parameters would require additional computations.
+# - generate_move(board): returns a pair containing:
+#   - a Move
+#   - a string about the move or the status of the game, intended as a comment
+#     from the AI player about the situation, for the user interface to display.
+__all__ = ["set_rules", "loading_needed", "generate_move"]
 
-# Contient les paramètres du module.
-# Ils sont réglés lors des appels à initialize(board_size, max_take)
+# The module parameters. To change them, call set_rules(board_size, max_take)
 _settings = {
-    'board_size': 0,  # taille du plateau
-    'max_take': 0,    # nombre maximal de bâtons qu'on peut prendre en un coup
+    'board_size': 0,  # the number of sticks on the board at the start
+    'max_take': 0,    # the maximum number of sticks one may take on a turn
 }
 
 
-# ===================== Fonctions liées au plateau de jeu =====================
+# ========================== Board related functions ==========================
 
 
 def _process(board):
-    '''Voir _to_configs() et _to_groups().
-    '''
+    """See _to_configs() and _to_groups().
+    """
     config = []
     groups = []
     group_size = 0
     group_start = 0
-    # Astuce pour prendre en compte le dernier groupe sans code supplémentaire
-    # après la boucle : on ajoute un case vide à la fin du plateau
+    # Adding an extra slot at the end of the board avoids duplicated code after
+    # the for loop below
     extended_board = Board.from_list(board.slots + [board.a_gap],
                                      board.a_gap,
                                      board.a_stick)
@@ -92,8 +95,7 @@ def _process(board):
                 group_start = i
             group_size += 1
         else:  # slot == board.a_gap:
-            # if we've reached the end of a group of sticks
-            if group_size > 0:
+            if group_size > 0:   # we've reached the end of a group of sticks
                 config.append(group_size)
                 groups.append((group_start, group_size))
                 group_size = 0
@@ -102,24 +104,41 @@ def _process(board):
 
 
 def _to_config(board):
-    '''Renvoie la configuration qui décrit le plateau spécifié.
-    '''
+    """Returns the configuration that describes the specified Board.
+    Examples:
+    Board       Configuration
+    ||||||||||  [10]
+    |||-||||||  [6, 3]
+    |||-|---||  [3, 2, 1]
+    --|-|---||  [2, 1, 1]
+    """
     return _process(board)[0]
 
 
 def _to_groups(board):
-    '''Renvoie une description du plateau spécifié, sous la forme d'une
-    liste de couples (indice_de_debut_de_groupe, taille_du_groupe).
-    '''
+    """Returns a list of couples (group_start_index, group_size) that describes
+    the specified Board.
+    Examples:
+    Board       Returned list
+    ||||||||||  [(0, 10)] (a group of 10 sticks starting at index 0)
+    |||-||||||  [(0, 3), (4, 6)]
+    |||-|---||  [(0, 3), (4, 1), (8, 2)]
+    --|-|---||  [(2, 1), (4, 1), (8, 2)]
+    """
     return _process(board)[1]
 
 
 def _build_move(board, take, group_size, offset=0):
-    '''Renvoie un coup qui consiste à prendre take bâtons dans un
-    groupe de group_size bâtons, en laissant offset bâtons au bord du
-    groupe.
-    Si un tel coup n'existe pas sur le plateau spécifié, renvoie None.
-    '''
+    """Returns a Move that removes @take sticks in a group of @group_size
+    sticks, and leaving @offset sticks at the edge of said group.
+    If such a Move does not exist on the specified board, returns None.
+    Example:
+    With a board b represented by |||-||||||, calling _build_move(b, 3, 6, 1)
+    means we want to take 3 sticks, one stick away from the edge of a 6-stick
+    group.
+    Returned value: Move(5, 8). Playing this move removes sticks at indices 5
+    to 7 included: |||-|xxx||.
+    """
     if take + offset > group_size:
         return None
     groups = _to_groups(board)
@@ -128,160 +147,143 @@ def _build_move(board, take, group_size, offset=0):
             left = i_start + offset
             right = left + take
             return Move(left, right)
-    else:  # on n'a trouvé aucun groupe de la bonne taille sur le plateau
+    else:  # No group was found with the right size
         return None
 
 
-# ===================== Fonctions liées au configurations =====================
+# ====================== Configuration related functions ======================
 
-# Table de toutes les configurations possibles
-# _configs[n] = tableau des configs à n bâtons
-# _configs[n][k] = liste des configs à n bâtons divisés en k groupes
-# _configs[n][k][i] = i-ième config à n bâtons et k groupes
+# Table of all possible configurations (up to some maximum number of sticks)
+# _configs[n] is the table of n-stick configs
+# _configs[n][k] is the list of n-stick k-group configs
 _configs = []
-_configs.append([])   # liste (vide) des configs à 0 bâtons
+_configs.append([])   # adding the (empty) list of 0-stick configs
 
-# Liste des configurations perdantes
+# List of known losing configurations
 _losing_configs = []
 
-# Dictionnaire pour sauvegarder les configs perdantes construites avec
-# différents max_take
+# A dictionary to backup the LC-lists that were built with different values of
+# max_take, so that they need not be recomputed when changing rule sets.
+# keys: max_take
+# values: (board_size, _losing_configs)
 _losing_backup = {}
 
 
 def _move_exists(config_from, config_to, max_take):
-    '''Renvoie True si, dans la situation config_from, on peut jouer un coup
-    qui amène à la situation config_to en prenant au plus max_take bâtons.
-    '''
-    # Après un coup, le nombre de groupes peut soit :
-    # - être inchangé,
-    # - diminuer de un (si on prend les derniers bâtons d'un groupe),
-    # - augmenter de un (si on divise en deux un groupe, en prenant des bâtons
-    #   au milieu)
+    """Returns True if when in the situation @config_from, you can play a move
+    that removes at most @max_take sticks and gets you to the situation
+    @config_to.
+    """
+    # After a move, the number of groups can either:
+    # - remain the same
+    # - decrease by one (if you take a group’s last sticks)
+    # - increase by one (if you split a group by taking sticks in its middle)
     if abs(len(config_from) - len(config_to)) > 1:
         return False
 
-    # On doit prendre entre 1 et prise_max bâtons par coup
+    # You have to take between 1 and max_take sticks per turn
     take = sum(config_from) - sum(config_to)
     if take < 1 or take > max_take:
         return False
 
-    # Comme on ne peut toucher qu'à un groupe en jouant, si on enlève de
-    # config_from tous les éléments que config_from et config_to ont en commun,
+    # Since playing a move can only modify one group of the starting config,
+    # every group of config_from must be found again in config_to, except for
+    # one (the group you take sticks from).
     c_from = config_from[:]
     for group in config_to:
         if group in c_from:
             c_from.remove(group)
-    # ... il ne doit alors rester qu'un seul groupe dans c_from (celui auquel
-    # le joueur enlève des bâtons)
     return len(c_from) == 1
 
 
-def _move_between(config_from, config_to):
-    '''Renvoie un triplet d'entiers qui décrit l'action à effectuer pour
-    passer de config_from à config_to :
-    - le nombre de bâtons à prendre
-    - la taille du groupe auquel il faut prendre des bâtons
-    - le nombre de bâtons qu'il faut laisser au bord du groupe
-    S'il n'existe pas de coup entre les deux config, renvoie None.
-    '''
+def _describe_move_between(config_from, config_to):
+    """Returns a triplet of integers describing what move you need to make to
+    get from @config_from to @config_to:
+    - the number of sticks to take
+    - the size of the group to take sticks from
+    - the number of sticks to leave on the edge of such a group
+    If no move exists between the two specified configs, returns None.
+    """
     take = sum(config_from) - sum(config_to)
     if not _move_exists(config_from, config_to, take):
         return None
-    # suppression des groupes communs aux deux configs
+    # deleting common groups
     c_from = config_from[:]
     c_to = config_to[:]
     for group in config_to:
         if group in c_from:
             c_from.remove(group)
             c_to.remove(group)
-    # il ne reste forcément qu'un groupe dans c_from
-    group_to_take_from = c_from[0]
-    # il peut rester dans c_to :
-    # - 0 groupes : on a pris tout le groupe de c_from
-    # - 1 groupe  : on a pris les bâtons au bord du groupe
-    # - 2 groupes : on a pris les bâtons au milieu du groupe
+    # there can be only one group left in c_from (see _move_exists)
+    size_of_group_to_take_from = c_from[0]
+    # in c_to, there can be:
+    # - 0 group left: taking all the sticks in c_from’s group
+    # - 1 group left: taking the sticks on the edge of c_from’s group
+    # - 2 groups left: taking the sticks in the middle of c_from’s group
     if len(c_to) <= 1:
         offset = 0
     else:  # len(c_to) == 2
-        # on pourrait aussi prendre c_to[1], on obtiendrait simplement un
-        # décalage symétrique
-        offset = c_to[0]
-    return take, group_to_take_from, offset
-
-
-def _reachable(config_from, max_take, configs_to=None):
-    '''Renvoie la liste de toutes les configurations possibles (parmi la
-    liste configs_to si elle est spécifiée) qui peuvent être atteintes
-    en un coup depuis config_from.
-    '''
-    if configs_to is not None:
-        return [c for c in configs_to
-                if _move_exists(config_from, c, max_take)]
-    else:
-        # TODO Générer toutes les configs atteignables depuis config_from
-        return []
+        # randomly choosing between c_to[0] and c_to[1] (symmetrical offsets)
+        # for more variety in the AI’s moves.
+        offset = c_to[random.choice([0, 1])]
+    return take, size_of_group_to_take_from, offset
 
 
 def _build_configs(up_to, start_from=1):
-    '''Remplit la table de toutes les configurations contenant up_to bâtons
-    et moins.
-    '''
+    """Fills the table of all configurations made up of @up_to sticks and fewer.
+    If you know the table has already been computed up to some value N, you can
+    set @start_from to N + 1 to avoid recomputing.
+    """
     global _configs
     for n in range(start_from, up_to + 1):
-        # Création des configs à n bâtons
-        _configs.append([])          # initialisation
-        _configs[n].append([])       # aucune config à 0 groupes
-        _configs[n].append([[n]])    # unique config à 1 groupe
+        _configs.append([])        # n-stick config list initialisation
+        _configs[n].append([])     # no 0-group configs
+        _configs[n].append([[n]])  # the only 1-group config:
+                                   # one group of n sticks
         for k in range(2, n + 1):
-            # Création de la liste des configs à n bâtons et k groupes
-            # Ces configs sont séparées en deux ensembles (disjoints) :
-            # A. les configs à n-1 bâtons en k-1 groupes,
-            #    auxquelles on va ajouter un groupe de 1 bâton
-            # B. les configs à n-k bâtons en k groupes,
-            #    dans lesquelles on va ajouter 1 bâton à chaque groupe
-            _configs[n].append([])       # initialisation
-
-            # Ensemble A
+            # Creating the list of n-stick k-group configs
+            # Such a config can either be:
+            # A. an (n-1)-stick (k-1)-group config to which you add a 1-stick
+            #    group
+            # B. an (n-k)-stick k-group config in which you add one stick to
+            #    every group
+            # More info: https://en.wikipedia.org/wiki/Partition_(number_theory)
+            _configs[n].append([])
+            # Set A
             new_configs = []
-            for c in _configs[n - 1][k - 1]:     # copie profonde
-                new_configs.append(c[:])
-            for c in new_configs:
-                c.append(1)     # ajout du nouveau groupe de 1 bâton
+            for c in _configs[n - 1][k - 1]:
+                new_c = c[:]
+                new_c.append(1)    # adding the 1-stick group
+                new_configs.append(new_c)
             _configs[n][k].extend(new_configs)
-
-            # Ensemble B
+            # Set B
             if k > n - k:
                 continue
             new_configs = []
-            for c in _configs[n - k][k]:         # copie profonde
-                new_configs.append(c[:])
-            # ajout d'un bâton à chaque groupe de chaque config
-            new_configs = [[x + 1 for x in c] for c in new_configs]
+            for c in _configs[n - k][k]:
+                # adding a stick to every group
+                new_configs.append([x + 1 for x in c])
             _configs[n][k].extend(new_configs)
 
 
-# Fonction la plus lente. Sur mon ordi (Core 2 Duo de 2009) :
-# - Pour ~20 bâtons, met une petite seconde
-# - Pour ~30 batons, met une petite minute
-# - Pour ~40 batons, met une petite heure
+# Slowest function. On my computer (core i5 from 2018):
+# @up_to   Time
+# 20       ~100 ms
+# 30       ~10 s
+# 40       ~10 min
 def _build_losing_configs(up_to, max_take, start_from=1):
-    '''Construit la liste de toutes les configurations perdantes à
-    up_to bâtons ou moins.
-
-    Nécessite que la table des configurations ait été créée (avec
-    _build_configs()), au moins jusqu'à up_to.
-    '''
-
-    # Pour toutes les configs de board_size bâtons au plus, on parcourt la
-    # liste des configurations perdantes connues, à la recherche d'une CP qui
-    # peut être atteinte depuis la config courante.
-    # Si on n'en a trouvé aucune, c'est que cette config est perdante : on
-    # l'ajoute à la liste
+    """Builds the list of all losing configurations made of @up_to sticks or
+    fewer.
+    Requires that the _configs table has been computed (with _build_configs)
+    at least up to @up_to.
+    """
+    # Algo: for all configs, scan the list of known LCs, looking for an LC that
+    # can be reached from the current config. If none is found, it means this
+    # current config is losing: add it to the list.
     global _losing_configs
     for n in range(start_from, up_to + 1):
-        # raccourci : pour n impair, aucune config n'est perdante sauf celle
-        # constituée uniquement de 1
+        # shortcut: when n is odd, no n-stick config is losing except for
+        # [1, 1, ..., 1] (I don't have proof for this).
         if n % 2 == 1:
             _losing_configs.append([1] * n)
             continue
@@ -294,55 +296,103 @@ def _build_losing_configs(up_to, max_take, start_from=1):
                     _losing_configs.append(config)
 
 
-def _winning_moves(config):
-    return _reachable(config, _settings['max_take'], _losing_configs)
+def _reachable_losing_configs(config_from):
+    """Returns the list of all configs in @losing_configs that can be reached in
+    one move from @config_from.
+    Note: if the result is not empty, it means @config_from is a winning config.
+    """
+    return [c for c in _losing_configs
+            if _move_exists(config_from, c, _settings['max_take'])]
 
 
-def _message_about(config):
-    '''Renvoie un message à propos d'une configuration supposée perdante.
-    '''
-
-    # s'il ne reste que le dernier bâton (= fin de la partie)
-    if config == [1]:
+def _losing_message_about(losing_config):
+    """Returns a string about a losing config, intended as a comment from the
+    AI player about the situation, for the user interface to display.
+    """
+    # the game is ending right away
+    if losing_config == [1]:
         messages = [
-            "Je m'incline !",
-            "Bien joué !",
-            "Bravo !",
+            "I yield!",
+            "I admit defeat.",
+            "Well played.",
+            "Bravo!",
+            "A worthy opponent indeed."
         ]
-    # s'il ne reste qu'un nombre impair de groupes de 1 (= défaite obligatoire)
-    elif config[0] == 1 and sum(config) % 2 == 1:
+    # only an odd number of groups of 1 (= rather obvious incoming defeat)
+    elif losing_config[0] == 1 and sum(losing_config) % 2 == 1:
         messages = [
-            "Je suis mal barré...",
-            "Ça sent la fin...",
-            "Aïe aïe aïe...",
+            "Oh no–",
+            "I’m in trouble…",
+            "The end is near…",
+            "Ouch.",
+            "I know where this is going. I don’t like it."
         ]
-    # cas général : défaite à moins que l'adversaire fasse une erreur
+    # general case: defeat unless our opponent makes a mistake
     else:
         messages = [
-            "Hmm...",
-            "J'hésite...",
-            "Pas facile...",
-            "Pas mal...",
+            "Hmm…",
+            "Can’t decide…",
+            "Making my mind up…",
+            "Just a second…",
+            "It’s not that easy…",
+            "Not bad."
         ]
-        # messages supplémentaires si on approche de la fin de la partie
-        if sum(config) <= _settings['board_size'] / 3:
+        # additional messages when nearing the end of the game
+        if sum(losing_config) <= _settings['board_size'] / 3:
             messages.extend([
-                "Vous êtes fort, on dirait !",
-                "Eh bien, voilà un adversaire de taille !",
-                "Décidément...",
+                "Looks like you’re quite strong.",
+                "Oh man!",
+                "Really?",
+                "Unbelievable.",
+                "You had me from the beginning didn’t you."
             ])
     return random.choice(messages)
 
 
-# =========================== Fonctions principales ===========================
+def _winning_message_about(config):
+    """Returns a string about a winning config, intended as a comment from the
+    AI player about the situation, for the user interface to display.
+    """
+    # the game will end after the opponent’s next move
+    if config == [1, 1]:
+        messages = [
+            "Well played.",
+            "You fought well.",
+            "The final blow.",
+            "This is it."
+        ]
+    # only groups of 1 are left (= rather obvious incoming victory)
+    elif config[0] == 1:
+        messages = [
+            "I’m feeling good.",
+            "Seems easy enough.",
+            "Very good.",
+            "Only one way now, right?",
+        ]
+    # general case: victory (unless we make a mistake…)
+    else:
+        messages = [
+            "All right,",
+            "I’m playing",
+            "Let’s try",
+            "Say,",
+            "Okay,",
+            "Why not",
+            "Tell me what you think of"
+        ]
+    return random.choice(messages)
 
 
-def initialize(board_size, max_take):
-    '''Fonction à appeler avant de pouvoir appeler la génération de coup.
-    '''
+# =============================== Main functions ===============================
+
+
+def set_rules(board_size, max_take):
+    """Defines the rules that the module is going to use when asked to play
+    moves. Needs to be called at least once before generate_moves can be called.
+    """
     global _configs
     global _losing_configs
-    # fetch possible backed up data
+    # fetch backed up data if any
     known_size, _losing_configs = \
         _losing_backup[max_take] if max_take in _losing_backup else (0, [])
 
@@ -356,43 +406,43 @@ def initialize(board_size, max_take):
 
 
 def loading_needed(board_size, max_take):
-    '''Renvoie True si un appel à initialize avec ces paramètres nécessiterait
-    des calculs supplémentaires.
-    '''
+    """Returns True if calling set_rules with the same parameters would require
+    additional computations.
+    """
     return max_take not in _losing_backup \
         or board_size > _losing_backup[max_take][0]
 
 
 def generate_move(board):
-    '''Renvoie un Move (~= un couple d'entiers, indices entre
-    lesquels l'IA souhaite enlever des bâtons) et un message destiné à
-    l'interface.
-    Nécessite que la fonction initialize ait déjà été appelée.
-    '''
+    """Returns a pair containing:
+    - a Move
+    - a string about the move or the status of the game, intended as a comment
+      from the AI player about the situation, for the user interface to display.
+    Requires that set_rules has been called before.
+    """
     config = _to_config(board)
-    solutions = _winning_moves(config)
-    if solutions is None:
-        raise Exception(
-            "Plateau non étudié. Il y a probablement eu une erreur à "
-            "l'initialisation du module " + __name__)
-    elif solutions:
-        # on construit le coup à jouer pour aller vers une des solutions
-        take, group, offset = _move_between(config, random.choice(solutions))
-        message = ""
+    targets = _reachable_losing_configs(config)
+    if targets is None:
+        raise Exception("This board was not studied. There was probably an "
+                        "error while initializing the " + __name__ + "module.")
+    elif targets:
+        # The AI can win
+        take, group, offset = _describe_move_between(config,
+                                                     random.choice(targets))
+        message = _winning_message_about(config)
     else:
-        # La configuration est perdante ; on va générer un coup au hasard.
-
-        # TODO générer le coup le "plus compliqué" possible ?
-        # "plus compliqué" au sens : qui met l'adversaire dans une config qui
-        # ait le moins de coups gagnants possibles
-
-        # choix du groupe à toucher,
-        # du nombre de bâtons à prendre dans ce groupe,
-        # puis du nombre de bâtons à laisser au bord du groupe
+        # The AI is in a losing situation
+        # Let’s generate a random move. We need:
+        # - a group to touch
+        # - a number of sticks to take from this group
+        # - a number of sticks to leave on the edge of the group
         group = random.choice(config)
         take = random.randint(1, min(_settings['max_take'], group))
         offset = random.randint(0, group - take)
-        message = _message_about(config)
+        message = _losing_message_about(config)
+    # TODO constante CHATTINESS, modifiable par l'utilisateur dans les réglages ?
+    if random.random() > 1:
+        message = ""
     return _build_move(board, take, group, offset), message
 
 
@@ -466,14 +516,14 @@ def _contains(config, sub_config):
     return True
 
 
-def _prune_losing_configs():
+def _prune_losing_configs(losing_configs):
     '''Renvoie la liste des configs perdantes privée de :
     - Celles qui terminent par une ou plusieurs paires de 1
     - Celles qui sont composées de plusieurs sous-configs perdantes
     '''
     pruned_losing_configs = []
 
-    for c in _losing_configs:
+    for c in losing_configs:
         pruned = c[:]        # copie pour ne pas modifier losing_configs
         # les configs à 2 groupes ou moins sont toujours incluses
         if len(pruned) <= 2:
@@ -499,7 +549,7 @@ def _prune_losing_configs():
                 for group in lc:
                     without_lc.remove(group)
                 # si le résultat reste perdant, on confirme la suppression
-                if without_lc == [] or without_lc in _losing_configs:
+                if without_lc == [] or without_lc in losing_configs:
                     pruned = without_lc
                 else:       # without_lc est gagnante
                     break   # passer à la lc suivante
@@ -536,9 +586,9 @@ if __name__ == "__main__":
     print("    Plateau        :", _settings['board_size'], "bâtons")
     print("    Prise maximale :", _settings['max_take'], "bâtons par tour")
     t = time.clock()
-    initialize(_settings['board_size'], _settings['max_take'])
+    set_rules(_settings['board_size'], _settings['max_take'])
     t_init = round((time.clock() - t) * 1000, 1)  # millisecondes
-    main_losing_configs = _prune_losing_configs()
+    main_losing_configs = _prune_losing_configs(_losing_configs)
 
     # print("------------------------- Configurations --------------------------")
     # for n in range(1, len(_configs)):
@@ -584,7 +634,7 @@ if __name__ == "__main__":
         if sum(config) > _settings['board_size']:
             print("(inconnu)")
             continue
-        solutions = _winning_moves(config)
+        solutions = _reachable_losing_configs(config)
         if solutions == []:
             print("perdu")
         else:
