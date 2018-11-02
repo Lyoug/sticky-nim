@@ -53,25 +53,22 @@
 """
 
 import random
-from mechanics import Board, Move
+from mechanics import Board, Move, Settings
 
 # Interface:
-# - set_rules(board_size, max_take): set the board size and the maximum number
-#   of sticks that can be removed on a turn. This function must be called at
-#   least once before the module is able to generate moves.
-# - loading_needed(board_size, max_take): returns True if calling set_rules with
-#   these same parameters would require additional computations.
-# - generate_move(board): returns a pair containing:
+# - set_rules(settings): set the board size and the maximum number of sticks
+#   that can be removed on a turn. This function must be called at least once
+#   before the module is able to generate moves.
+# - loading_needed(settings): returns True if calling set_rules with the same
+#   parameter would require additional computations.
+# - generate_move(game): returns a pair containing:
 #   - a Move
 #   - a string about the move or the status of the game, intended as a comment
 #     from the AI player about the situation, for the user interface to display.
 __all__ = ["set_rules", "loading_needed", "generate_move"]
 
-# The module parameters. To change them, call set_rules(board_size, max_take)
-_settings = {
-    'board_size': 0,  # the number of sticks on the board at the start
-    'max_take': 0,    # the maximum number of sticks one may take on a turn
-}
+# The module parameters. To change them, call set_rules
+_settings = Settings(board_size=0, max_take=0)
 
 
 # ========================== Board related functions ==========================
@@ -86,15 +83,15 @@ def _process(board):
     group_start = 0
     # Adding an extra slot at the end of the board avoids duplicated code after
     # the for loop below
-    extended_board = Board.from_list(board.slots + [board.a_gap],
-                                     board.a_gap,
-                                     board.a_stick)
+    extended_board = Board.from_list(board._slots + [board.a_gap],
+                                     board.a_stick,
+                                     board.a_gap)
     for i, slot in enumerate(extended_board):
         if slot == board.a_stick:
             if group_size == 0:
                 group_start = i
             group_size += 1
-        else:  # slot == board.a_gap:
+        else:
             if group_size > 0:   # we've reached the end of a group of sticks
                 config.append(group_size)
                 groups.append((group_start, group_size))
@@ -292,7 +289,7 @@ def _build_losing_configs(up_to, max_take, start_from=1):
                 for lc in _losing_configs:
                     if _move_exists(config, lc, max_take):
                         break
-                else:  # nobreak
+                else:  # no break
                     _losing_configs.append(config)
 
 
@@ -302,7 +299,7 @@ def _reachable_losing_configs(config_from):
     Note: if the result is not empty, it means @config_from is a winning config.
     """
     return [c for c in _losing_configs
-            if _move_exists(config_from, c, _settings['max_take'])]
+            if _move_exists(config_from, c, _settings.max_take)]
 
 
 def _losing_message_about(losing_config):
@@ -338,7 +335,7 @@ def _losing_message_about(losing_config):
             "Not bad."
         ]
         # additional messages when nearing the end of the game
-        if sum(losing_config) <= _settings['board_size'] / 3:
+        if sum(losing_config) <= _settings.board_size / 3:
             messages.extend([
                 "Looks like you’re quite strong.",
                 "Oh man!",
@@ -386,41 +383,46 @@ def _winning_message_about(config):
 # =============================== Main functions ===============================
 
 
-def set_rules(board_size, max_take):
-    """Defines the rules that the module is going to use when asked to play
+def set_rules(settings):
+    """Defines the settings that the module is going to use when asked to play
     moves. Needs to be called at least once before generate_moves can be called.
     """
     global _configs
     global _losing_configs
+    size = settings.board_size
+    max_take = settings.max_take
     # fetch backed up data if any
     known_size, _losing_configs = \
         _losing_backup[max_take] if max_take in _losing_backup else (0, [])
 
-    _settings['board_size'] = board_size
-    _settings['max_take'] = max_take
-    _build_configs(up_to=board_size, start_from=len(_configs))
-    _build_losing_configs(board_size, max_take, start_from=known_size + 1)
+    _settings.board_size = size
+    _settings.max_take = max_take
+    _build_configs(up_to=size, start_from=len(_configs))
+    _build_losing_configs(size, max_take, start_from=known_size + 1)
     # if we've built new things, back them up
-    if loading_needed(board_size, max_take):
-        _losing_backup[max_take] = (board_size, _losing_configs)
+    if loading_needed(settings):
+        _losing_backup[max_take] = (size, _losing_configs)
 
 
-def loading_needed(board_size, max_take):
+def loading_needed(settings):
     """Returns True if calling set_rules with the same parameters would require
     additional computations.
     """
-    return max_take not in _losing_backup \
-        or board_size > _losing_backup[max_take][0]
+    return settings.max_take not in _losing_backup \
+        or settings.board_size > _losing_backup[settings.max_take][0]
 
 
-def generate_move(board):
+def generate_move(game):
     """Returns a pair containing:
     - a Move
     - a string about the move or the status of the game, intended as a comment
       from the AI player about the situation, for the user interface to display.
     Requires that set_rules has been called before.
     """
-    config = _to_config(board)
+    if game.settings.board_size != _settings.board_size \
+            or game.settings.max_take != _settings.max_take:
+        raise ValueError("Inconsistent settings between the AI and the game")
+    config = _to_config(game.board)
     targets = _reachable_losing_configs(config)
     if targets is None:
         raise Exception("This board was not studied. There was probably an "
@@ -437,13 +439,13 @@ def generate_move(board):
         # - a number of sticks to take from this group
         # - a number of sticks to leave on the edge of the group
         group = random.choice(config)
-        take = random.randint(1, min(_settings['max_take'], group))
+        take = random.randint(1, min(game.settings.max_take, group))
         offset = random.randint(0, group - take)
         message = _losing_message_about(config)
-    # TODO constante CHATTINESS, modifiable par l'utilisateur dans les réglages ?
+    # TODO add CHATTINESS setting?
     if random.random() > 1:
         message = ""
-    return _build_move(board, take, group, offset), message
+    return _build_move(game.board, take, group, offset), message
 
 
 # ============================== Test du module ===============================
@@ -486,7 +488,7 @@ def _to_board(config, board_size=None, shuffle=False):
     slots.pop()
     # ajouter les éventuelles cases vides supplémentaires
     slots.extend([gap] * (board_size - len(slots)))
-    return Board.from_list(slots, gap, stick)
+    return Board.from_list(slots, stick, gap)
 
 
 def _sizeof_configs():
@@ -569,24 +571,24 @@ if __name__ == "__main__":
 
     # TODO Gestion plus fine des exceptions
     try:
-        _settings['board_size'] = int(sys.argv[1])
+        _settings.board_size = int(sys.argv[1])
     except:
         print("Usage :\n"
               "    python", sys.argv[0], "board_size [max_take]\n"
               "    if unspecified, max_take defaults to 3")
         quit()
     try:
-        _settings['max_take'] = int(sys.argv[2])
+        _settings.max_take = int(sys.argv[2])
     except:
-        _settings['max_take'] = 3
+        _settings.max_take = 3
 
     print("================== "
           "Jeu des bâtons / Test de l'IA "
           "==================")
-    print("    Plateau        :", _settings['board_size'], "bâtons")
-    print("    Prise maximale :", _settings['max_take'], "bâtons par tour")
+    print("    Plateau        :", _settings.board_size, "bâtons")
+    print("    Prise maximale :", _settings.max_take, "bâtons par tour")
     t = time.clock()
-    set_rules(_settings['board_size'], _settings['max_take'])
+    set_rules(_settings)
     t_init = round((time.clock() - t) * 1000, 1)  # millisecondes
     main_losing_configs = _prune_losing_configs(_losing_configs)
 
@@ -617,7 +619,7 @@ if __name__ == "__main__":
 
     print("------------------------------------------------------------------")
     configs_test = [
-        [_settings['board_size']],
+        [_settings.board_size],
         [3, 2, 1],
         [6, 5, 4, 4, 2, 1],
         [6, 5, 2, 1],
@@ -631,7 +633,7 @@ if __name__ == "__main__":
 
     for config in configs_test:
         print(config, "->", end=' ')
-        if sum(config) > _settings['board_size']:
+        if sum(config) > _settings.board_size:
             print("(inconnu)")
             continue
         solutions = _reachable_losing_configs(config)
@@ -641,7 +643,7 @@ if __name__ == "__main__":
             print(solutions)
 
     print("------------------------------------------------------------------")
-    boards_test = [Board.from_list(list(b), "o", "l") for b in [
+    test_boards = [Board.from_list(list(b), "l", "o") for b in [
         "",
         "o",
         "l",
@@ -654,7 +656,7 @@ if __name__ == "__main__":
         "lolol",
     ]]
     print("Plateau / Config / Groupes")
-    for board in boards_test:
+    for board in test_boards:
         config, groups = _process(board)
         print(board, config, groups, sep=' / ')
 

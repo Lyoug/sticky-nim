@@ -1,8 +1,7 @@
 """Sticky-Nim - Console version
 
-    This game is a variant of the game of Nim.
+    This 2-player game is a variant of the game of Nim.
     Rules:
-    - 2 players
     - Start with a line of sticks: ||||||||||
     - On their turn, a player may take up to 3 sticks from the line. These
       sticks can be anywhere, but they need to be next to each other.
@@ -30,23 +29,20 @@
     sticks |||-x-x||| because they are not next to each other.
 """
 
-import sys
 import random
 
-from mechanics import Move, Player, Game
+from mechanics import Move, Settings, Player, Game
 import ai
 
+SCREEN_WIDTH = 80
+
+# Default settings
 DEFAULT_BOARD_SIZE = 20
 DEFAULT_MAX_TAKE = 3
+
 # Using a board this size and up will trigger a warning about the AI taking a
 # possibly long time to load
 LARGE_BOARD_WARNING = 27
-
-_settings = {
-    'board_size': -1,
-    'max_take': -1,
-    'screen_width': 80  # TODO paramétrable par l'utilisateur ? auto-ajustable ?
-}
 
 # The board typically contains about 20 sticks. This interface is limited to
 # 62 sticks, labeled a-z, then A-Z, then 0-9 (26 + 26 + 10 = 62).
@@ -73,8 +69,8 @@ class PleaseExit(Exception):
     pass
 
 
-def display_rules():
-    print(" Sticky-Nim ---- Rules ".center(_settings['screen_width'], '-'))
+def display_rules(settings):
+    print(" Sticky-Nim ---- Rules ".center(SCREEN_WIDTH, '-'))
     print("""This 2-player game is a variant of the game of Nim.
 - Start with a line of sticks: ||||||||||
 - On your turn, you may take up to 3 sticks from the line, anywhere you want,
@@ -97,28 +93,28 @@ Player  Action                           →  Board
 
 The starting quantity of sticks and the maximum number of sticks you are
 allowed to take every turn can be customized. Current settings:""")
-    print("    Starting sticks:", _settings['board_size'])
-    print("    Maximum take   :", _settings['max_take'], "sticks per turn")
-    print("-" * _settings['screen_width'])
+    print(f"    Starting sticks: {settings.board_size}")
+    print(f"    Maximum take   : {settings.max_take} sticks per turn")
+    print("-" * SCREEN_WIDTH)
 
 
 def display_help():
     """Display the list of available commands.
     """
-    print(" Sticky-Nim ---- Help ".center(_settings['screen_width'], '-'))
-    print("General commands:")
-    print("    new       Start a new game")
-    print("    settings  Change game settings (board size and max take)")
-    print("    rules     Display the rules of the game")
-    print("    help      Display this help")
-    print("    quit      Close Sticky-Nim")
-    print("In-game commands:")
-    print("    xy        Take sticks from x to y")
-    print("    board     Redisplay the board")
-    print("    menu      Go back to the main menu")
+    print(" Sticky-Nim ---- Help ".center(SCREEN_WIDTH, '-'))
+    print("""General commands:
+    new       Start a new game
+    settings  Change game settings (board size and max take)
+    rules     Display the rules of the game
+    help      Display this help
+    quit      Close Sticky-Nim
+In-game commands:
+    xy        Take sticks from x to y
+    board     Redisplay the board
+    menu      Go back to the main menu""")
     # additional purposefully undocumented in-game command:
     # "cheat": shows winning moves if any
-    print("-" * _settings['screen_width'])
+    print("-" * SCREEN_WIDTH)
 
 
 def display_board(board):
@@ -142,12 +138,12 @@ def display_board(board):
             letters.append(' ')
     sticks.append('>')
     letters.append(' ')
-    if 2 * board.len() + 3 > _settings['screen_width']:
+    if 2 * len(board) + 3 > SCREEN_WIDTH:
         sep = ''
     else:
         sep = ' '
-    print(sep.join(sticks).center(_settings['screen_width']))
-    print(sep.join(letters).center(_settings['screen_width']))
+    print(sep.join(sticks).center(SCREEN_WIDTH))
+    print(sep.join(letters).center(SCREEN_WIDTH))
 
 
 def really_input(prompt=""):
@@ -170,7 +166,7 @@ def confirm(message, yes="y", no="n"):
     else:
         # Code if the user typed something else
     """
-    print(message + " (" + yes + "/" + no + ") ", end='')
+    print(f"{message} ({yes}/{no}) ", end='')
     choice = really_input().lower()
     if choice == yes:
         return True
@@ -185,24 +181,29 @@ def to_action(move):
     the specified move.
     """
     action = _coordinates[move.left]
-    if move.size() > 1:
+    if len(move) > 1:
         action += _coordinates[move.right - 1]
     return action
 
 
-def _cheat(board):
+def _cheat(game):
     # Print all winning moves if any
     # (Only works if the AI module knows about the current configuration)
-    config = ai._to_config(board)
+    config = ai._to_config(game.board)
     if config[0] == 1:
         if len(config) == 1:
             print("Really?")
         else:
             print("Well, it’s not like you have a choice there do you?")
         return
-    if ai.loading_needed(_settings['board_size'], _settings['max_take']):
+    if ai.loading_needed(game.settings):
         # The AI module would need additional computations to know the answer
-        print("I don’t know!")
+        print(random.choice([
+            "I don’t know!",
+            "I’m not strong enough",
+            "I would need an upgrade before I can answer",
+            "This is too difficult for me"
+        ]))
         return
     solutions = ai._reachable_losing_configs(config)
     if not solutions:
@@ -220,7 +221,7 @@ def _cheat(board):
         moves = []
         for target in solutions:
             take, group, offset = ai._describe_move_between(config, target)
-            moves.append(ai._build_move(board, take, group, offset))
+            moves.append(ai._build_move(game.board, take, group, offset))
         print(', '.join(sorted([to_action(m) for m in moves])))
 
 
@@ -237,13 +238,41 @@ def warn_unknown_command():
     ]))
 
 
-def human_action(player, board):
-    """Returns the Move that the specified human player wishes to play on the
-    specified Board.
+def errors_about_move(move, game):
+    """If @move is illegal in @game, prints an error message and returns True.
+    Else, returns False.
+    """
+    if move.is_legal_in(game):
+        return False
+    b = game.board
+    if move.is_out_of_bounds_on(b):
+        print("This move seems out of bounds")
+    elif move.contains_gap_on(b):
+        if b[move.left:move.right].count(b.a_stick) <= game.settings.max_take:
+            if move.strip_on(b) == move:
+                print("The sticks you take need to be next to each other")
+            else:
+                if not move.strip_on(b).contains_gap_on(b):
+                    print(f"Did you mean {to_action(move.strip_on(b))}?")
+        else:
+            print(random.choice([
+                "Impossible move",
+                "This move cannot be played",
+                "Illegal move",
+                "This move is illegal"
+            ]))
+    elif move.takes_too_many_for(game.settings.max_take):
+        print(f"Please take {game.settings.max_take} sticks at most")
+    return True
+
+
+def human_action(player, game):
+    """Returns the Move that the specified human player wishes to play in the
+    specified Game.
     Allows the human to perform other commands before actually playing, like
     displaying help, rules, stopping the game, etc.
     """
-    display_board(board)
+    display_board(game.board)
     while True:
         action = really_input(player.name + "> ")
         if action == "menu":
@@ -258,61 +287,58 @@ def human_action(player, board):
         elif action == "settings":
             print("Please go back to the main menu first")
         elif action == "rules":
-            display_rules()
+            display_rules(game.settings)
         elif action == "help":
             display_help()
         elif action == "board":
-            display_board(board)
+            display_board(game.board)
         elif action == "cheat":
             # (This command does not show in the help)
-            _cheat(board)
+            _cheat(game)
         elif len(action) <= 2 \
                 and action[0] in _coordinates \
                 and action[-1] in _coordinates:
             # convert the action into a pair of indices
             end1 = _coordinates.index(action[0])
-            # using -1 to allow moves like "a" that only take one stick
+            # using -1 allows for moves like "a" that only take one stick
             end2 = _coordinates.index(action[-1])
             # using min and max allows the user to enter coordinates from
             # right to left
             move = Move(min(end1, end2), max(end1, end2) + 1)
-            if move.is_out_of_bounds_on(board):
-                print("This move seems out of bounds")
-            elif move.contains_gap_on(board):
-                # TODO more detailed error message if size is legal and there
-                # are sticks on both sides
-                print("Impossible move")
-            elif move.is_too_large_on(board):
-                print("Take", board.max_take, "sticks at most!")
-            else:
+            if not errors_about_move(move, game):
                 return move
         else:
             warn_unknown_command()
 
 
-def computer_action(player, board):
-    """Returns the Move that the specified AI player wishes to play on the
-    specified board.
+def computer_action(player, game):
+    """Returns the Move that the specified AI player wishes to play in the
+    specified Game.
     Displays the possible message that this player wants to say, as well as the
     move’s coordinates.
     """
-    display_board(board)
+    display_board(game.board)
     print(player.name + "> ", end='')
-    move, message = ai.generate_move(board)
-    if not move.is_legal_on(board):
-        raise Exception("Incorrect move from the AI: " + str(move))
+    move, message = ai.generate_move(game)
+    if not move.is_legal_in(game):
+        try:
+            action = to_action(move)
+        except IndexError:
+            action = "IndexError"
+        raise Exception(f"Incorrect move from the AI: "
+                        f"[{move.left}, {move.right}] ({action})")
     if message != "":
         print(message, end=' ')
     print(to_action(move))
     return move
 
 
-def change_settings():
-    """Makes the user input new settings for future games.
+def change_settings(current_settings):
+    """Makes the user input new settings for future games and returns them.
     """
     print("Current settings:")
-    print("    Starting sticks:", _settings['board_size'])
-    print("    Maximum take   :", _settings['max_take'], "sticks per turn")
+    print(f"    Board size  : {current_settings.board_size}")
+    print(f"    Maximum take: {current_settings.max_take} sticks per turn")
     while True:
         print("New board size?", end=' ')
         try:
@@ -323,10 +349,9 @@ def change_settings():
         if board_size <= 0:
             print("This might be a little too small")
         elif board_size > len(_coordinates):
-            print("Sorry, I’m limited to",
-                  len(_coordinates), "sticks on the board")
+            print("Sorry, I’m limited to"
+                  f"{len(_coordinates)} sticks on the board")
         else:
-            _settings["board_size"] = board_size
             break
     while True:
         print("Maximum take per turn?", end=' ')
@@ -338,11 +363,11 @@ def change_settings():
         if max_take <= 0:
             print("Hmm, negative sticks… Too complicated for me")
         else:
-            _settings['max_take'] = max_take
             break
+    return Settings(board_size, max_take)
 
 
-def choose_players():
+def choose_players(settings):
     """Asks the user to choose whether the players will be humans or computers.
     Returns a list of two Player objects.
     """
@@ -352,15 +377,14 @@ def choose_players():
         print(f"Player {p + 1}: human or computer? (h/c)", end=' ')
         s = really_input().lower()
         if s == 'c':
-            if ai.loading_needed(_settings['board_size'],
-                                 _settings['max_take']):
-                if _settings['board_size'] > LARGE_BOARD_WARNING:
+            if ai.loading_needed(settings):
+                if settings.board_size > LARGE_BOARD_WARNING:
                     print("Warning: the board is large, there might be a long "
                           "loading time.")
                     if not confirm("Continue?"):
-                        continue
+                        continue   # while loop
                 print("Loading…")
-            ai.set_rules(_settings['board_size'], _settings['max_take'])
+            ai.set_rules(settings)
             ai_names = [
                 "Computer",
                 "Robot",
@@ -371,27 +395,26 @@ def choose_players():
                 "Old PC",
                 "Nim-device",
             ]
-            ai_name = " ".join([random.choice(ai_names), str(p + 1)])
+            ai_name = f"{random.choice(ai_names)} {str(p + 1)}"
             players.append(Player(ai_name, computer_action))
         else:
             # TODO use startswith
             if s != 'h':
                 print("Ah, definitely human then")
-            players.append(Player("Player " + str(p + 1), human_action))
+            players.append(Player(f"Player {str(p + 1)}", human_action))
         p += 1
     return players
 
 
-def new_game(players):
+def new_game(players, settings):
     """Lets the specified Players play a game. @players is a list of two Player.
     TODO type annotation
     Returns True if the players wish to start another game right away.
     """
-    game = Game(players, _settings['board_size'], _settings['max_take'])
+    game = Game(players, settings)
     try:
         winner = game.play()
-        print(' '.join([winner.name, "won!"])
-              .center(_settings['screen_width']))
+        print(f"{winner.name} won!".center(SCREEN_WIDTH))
     except PleaseRestart:
         return True
     except PleaseStop:
@@ -400,8 +423,9 @@ def new_game(players):
         return confirm("Play another game?")
 
 
-def menu(width):
+def menu():
     """Main menu input loop."""
+    settings = Settings(DEFAULT_BOARD_SIZE, DEFAULT_MAX_TAKE)
     while True:
         action = really_input("menu> ")
         if action in ["menu", "m"]:
@@ -409,64 +433,32 @@ def menu(width):
         elif action == "board":
             print("Hmm, there is no ongoing game")
         elif action in ["settings", "s"]:
-            change_settings()
+            settings = change_settings(settings)
         elif action in ["rules", "r"]:
-            display_rules()
+            display_rules(settings)
         elif action in ["help", "h"]:
             display_help()
         elif action in ["quit", "q"]:
             raise PleaseExit()
         elif action in ["new", "n"]:
-            players = choose_players()
+            players = choose_players(settings)
             keep_playing = True
             while keep_playing:
-                print(" Sticky-Nim ---- New game ".center(width, '-'))
-                keep_playing = new_game(players)
-            print("-" * width)
+                print(" Sticky-Nim ---- New game ".center(SCREEN_WIDTH, '-'))
+                keep_playing = new_game(players, settings)
+            print("-" * SCREEN_WIDTH)
         else:
             warn_unknown_command()
-
-
-def parse_command_line():
-    """Reads command line arguments if any, and fills the _settings global
-    dictionary accordingly. Giving no argument results in the default
-    settings being used. Giving incorrect arguments result in the program
-    exiting.
-    """
-    # TODO finer exception handling: ValueError, IndexError
-    try:
-        size = int(sys.argv[1])
-    except:
-        size = DEFAULT_BOARD_SIZE
-    if size <= 0:
-        print("The board size must be positive")
-        quit()
-    if size > len(_coordinates):
-        print("Sorry, this interface is limited to",
-              len(_coordinates), "sticks")
-        quit()
-    _settings['board_size'] = size
-
-    try:
-        max_take = int(sys.argv[2])
-    except:
-        max_take = DEFAULT_MAX_TAKE
-    if max_take <= 0:
-        print("The maximum take must be positive")
-        quit()
-    _settings['max_take'] = max_take
 
 
 # ================================ Main program ================================
 
 
 if __name__ == "__main__":
-    parse_command_line()
-    print(" Sticky-Nim ".center(_settings['screen_width'], '='))
+    print(" Sticky-Nim ".center(SCREEN_WIDTH, '='))
     print("Type 'help' if you need some")
     try:
-        menu(_settings['screen_width'])
+        menu()
     except PleaseExit:
         pass
-    print(" Sticky-Nim ==== See you soon! ".center(
-        _settings['screen_width'], '='))
+    print(" Sticky-Nim ==== See you soon! ".center(SCREEN_WIDTH, '='))
