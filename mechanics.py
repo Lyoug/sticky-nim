@@ -151,7 +151,11 @@ class Move:
         return self.right - self.left
 
     def __eq__(self, other):
-        return self.left == other.left and self.right == other.right
+        if self is None:
+            return other is None
+        else:
+            return other is not None \
+                and self.left == other.left and self.right == other.right
 
     def is_out_of_bounds_on(self, board):
         """Returns True if this Move’s indices are out of the specified Board’s

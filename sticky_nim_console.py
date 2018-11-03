@@ -248,7 +248,9 @@ def errors_about_move(move, game):
     if move.is_out_of_bounds_on(b):
         print("This move seems out of bounds")
     elif move.contains_gap_on(b):
-        if b[move.left:move.right].count(b.a_stick) <= game.settings.max_take:
+        if b.a_stick not in b[move.left:move.right]:
+            print("But… there are no sticks there")
+        elif b[move.left:move.right].count(b.a_stick) <= game.settings.max_take:
             if move.strip_on(b) == move:
                 print("The sticks you take need to be next to each other")
             else:
