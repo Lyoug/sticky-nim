@@ -1,14 +1,10 @@
 """Sticky-Nim - Console version
 
     This 2-player game is a variant of the game of Nim.
-    Rules:
     - Start with a line of sticks: ||||||||||
-    - On their turn, a player may take up to 3 sticks from the line. These
-      sticks can be anywhere, but they need to be next to each other.
+    - On your turn, you may take up to 3 sticks from the line, anywhere you
+      want, but they need to be next to each other.
     - Whoever takes the last stick loses.
-
-    The starting quantity of sticks and the number of sticks you are allowed
-    to take every turn can be customized.
 
     Example game:
     ========================================================================
@@ -24,9 +20,12 @@
        1    Has to take the last one         →  ----------  →  Player 1 lost
     ========================================================================
 
+    The starting quantity of sticks and the maximum number of sticks you are
+    allowed to take every turn can be customized.
+
     Example of an illegal move:
-    Say the board looks like this |||-|-||||. You cannot take these two marked
-    sticks |||-x-x||| because they are not next to each other.
+    Say the board looks like '|||-|-||||'. You cannot take these two marked
+    sticks '|||-x-x|||' because they are not next to each other.
 """
 
 import random
@@ -34,6 +33,7 @@ import random
 from mechanics import Move, Settings, Player, Game
 import ai
 
+# Console window width
 SCREEN_WIDTH = 80
 
 # Default settings
@@ -114,8 +114,9 @@ In-game commands:
     xy        Take sticks from x to y
     board     Redisplay the board
     menu      Go back to the main menu""")
-    # additional purposefully undocumented in-game command:
+    # additional purposefully undocumented in-game commands:
     # "cheat": shows winning moves if any
+    # "takeover": lets the AI handle the rest of the game for this player
     print("-" * SCREEN_WIDTH)
 
 
@@ -227,12 +228,14 @@ def _cheat(game):
 
 
 def warn_unknown_command():
-    """Print a message to warn the user that the command he typed is invalid.
-    """
+    """Print a message to warn the user that the command he typed is invalid."""
     print(random.choice([
         "I did not get that",
         "Sorry?",
         "I do not know this command",
+        "I could not make sense of this",
+        "Please rephrase this",
+        "Beg your pardon?",
         "Unknown command",
         "Invalid command",
         "Unrecognized input"
@@ -240,33 +243,33 @@ def warn_unknown_command():
 
 
 def errors_about_move(move, game):
-    """If @move is illegal in @game, prints an error message and returns True.
-    Else, returns False.
+    """If @move is illegal in @game, returns an error message.
+    Else, returns None.
     """
-    if move.is_legal_in(game):
-        return False
     b = game.board
     if move.is_out_of_bounds_on(b):
-        print("This move seems out of bounds")
+        return "This move seems out of bounds"
     elif move.contains_gap_on(b):
         if b.a_stick not in b[move.left:move.right]:
-            print("But… there are no sticks there")
+            return "But… there are no sticks there"
         elif b[move.left:move.right].count(b.a_stick) <= game.settings.max_take:
             if move.strip_on(b) == move:
-                print("The sticks you take need to be next to each other")
+                return "The sticks you take need to be next to each other"
             else:
                 if not move.strip_on(b).contains_gap_on(b):
-                    print(f"Did you mean {to_action(move.strip_on(b))}?")
+                    return f"Did you mean {to_action(move.strip_on(b))}?"
         else:
-            print(random.choice([
+            return random.choice([
                 "Impossible move",
                 "This move cannot be played",
                 "Illegal move",
                 "This move is illegal"
-            ]))
+            ])
     elif move.takes_too_many_for(game.settings.max_take):
-        print(f"Please take {game.settings.max_take} sticks at most")
-    return True
+        return f"Please take {game.settings.max_take} sticks at most"
+    else:
+        # the move is legal
+        return None
 
 
 def human_action(player, game):
@@ -298,6 +301,25 @@ def human_action(player, game):
         elif action == "cheat":
             # (This command does not show in the help)
             _cheat(game)
+        elif action == "takeover":
+            # (This command does not show in the help)
+            # lets the AI handle moves for this player from now on
+            if ai.loading_needed(game.settings):
+                print(f"Corrupting {player.name}’s mind, please wait...")
+                ai.set_rules(game.settings)
+            player.action = computer_action
+            player.name += " [Corrupted]"
+            return computer_action(player, game)
+        elif len(action) == 3:
+            # address the most common input mistake beginners make:
+            # they tend to type 'abc' instead of 'ac' to take 3 sticks
+            if action[0] in _coordinates and action[2] in _coordinates \
+                    and ord(action[1]) - ord(action[0]) == 1 \
+                    and ord(action[2]) - ord(action[1]) == 1:
+                print(f"did you mean {action[0]}{action[2]}? "
+                      f"(this will take stick {action[1]} as well)")
+            else:
+                warn_unknown_command()
         elif len(action) <= 2 \
                 and action[0] in _coordinates \
                 and action[-1] in _coordinates:
@@ -308,7 +330,10 @@ def human_action(player, game):
             # using min and max allows the user to enter coordinates from
             # right to left
             move = Move(min(end1, end2), max(end1, end2) + 1)
-            if not errors_about_move(move, game):
+            error = errors_about_move(move, game)
+            if error:
+                print(error)
+            else:
                 return move
         else:
             warn_unknown_command()
@@ -329,7 +354,7 @@ def computer_action(player, game):
         except IndexError:
             action = "IndexError"
         raise Exception(f"Incorrect move from the AI: "
-                        f"[{move.left}, {move.right}] ({action})")
+                        f"{move} ({action})")
     if random.random() <= AI_CHATTINESS / 100:
         print(message, end=' ')
     print(to_action(move))
@@ -371,7 +396,8 @@ def change_settings(current_settings):
 
 def choose_players(settings):
     """Asks the user to choose whether the players will be humans or computers.
-    Returns a list of two Player objects.
+    Returns a list of two Player instances, with their names and action
+    functions all set up.
     """
     players = []
     p = 0
