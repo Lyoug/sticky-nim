@@ -190,7 +190,7 @@ def to_action(move):
 def _cheat(game):
     # Print all winning moves if any
     # (Only works if the AI module knows about the current configuration)
-    config = ai._to_config(game.board)
+    config = game.board.to_config()
     if config[0] == 1:
         if len(config) == 1:
             print("Really?")
@@ -222,7 +222,7 @@ def _cheat(game):
         moves = []
         for target in solutions:
             take, group, offset = ai._describe_move_between(config, target)
-            moves.append(ai._build_move(game.board, take, group, offset))
+            moves.extend(game.board.list_moves(take, group, offset))
         print(', '.join(sorted([to_action(m) for m in moves])))
 
 

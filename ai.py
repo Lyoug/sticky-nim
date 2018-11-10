@@ -1,25 +1,6 @@
 ﻿"""Artificial intelligence module for the Sticky-Nim game.
 
-    -------------------------------- Notations ---------------------------------
-
-    A Configuration or config for short is a list of (decreasing) integers, that
-    summarizes a game situation. Each integer represents a group of adjacent
-    sticks.
-    Example game:
-    (For a more detailed commentary of this game, see the main module,
-    sticky_nim_console.py)
-    ===========================================
-    Player  →  Board       Configuration
-    ===========================================
-       -    →  ||||||||||  [10]
-       1    →  |||-||||||  [6, 3]
-       2    →  |||-|---||  [3, 2, 1]
-       1    →  --|-|---||  [2, 1, 1]
-       2    →  --|-|---|-  [1, 1, 1]
-       1    →  --|-|-----  [1, 1]
-       2    →  ----|-----  [1]
-       1    →  ----------  []  →  Player 1 lost
-    ===========================================
+    Some more definitions about Configurations:
 
     An n-stick k-group Configuration is a configuration made of n sticks total,
     that are divided into k groups. For instance, [6, 3] is a 9-stick 2-group
@@ -42,7 +23,6 @@
     It can be noted that any configuration that is not losing is a winning
     configuration.
 
-
     --------------------------------- Strategy ---------------------------------
 
     The idea to guarantee a win is to play a move that leaves your opponent in
@@ -53,7 +33,7 @@
 """
 
 import random
-from mechanics import Board, Move, Settings
+from mechanics import Settings
 
 # Interface:
 # - set_rules(settings): set the board size and the maximum number of sticks
@@ -69,85 +49,6 @@ __all__ = ["set_rules", "loading_needed", "generate_move"]
 
 # The module parameters. To change them, call set_rules
 _settings = Settings(board_size=0, max_take=0)
-
-
-# ========================== Board related functions ==========================
-
-
-def _process(board):
-    """See _to_configs() and _to_groups().
-    """
-    config = []
-    groups = []
-    group_size = 0
-    group_start = 0
-    # Adding an extra slot at the end of the board avoids duplicated code after
-    # the for loop below
-    extended_board = Board.from_string(str(board) + Board.gap_char)
-    for i, slot in enumerate(extended_board):
-        if slot == extended_board.a_stick:
-            if group_size == 0:
-                group_start = i
-            group_size += 1
-        else:
-            if group_size > 0:   # we've reached the end of a group of sticks
-                config.append(group_size)
-                groups.append((group_start, group_size))
-                group_size = 0
-    config.sort(reverse=True)
-    return config, groups
-
-
-def _to_config(board):
-    """Returns the configuration that describes the specified Board.
-    Examples:
-    Board       Configuration
-    ||||||||||  [10]
-    |||-||||||  [6, 3]
-    |||-|---||  [3, 2, 1]
-    --|-|---||  [2, 1, 1]
-    """
-    return _process(board)[0]
-
-
-def _to_groups(board):
-    """Returns a list of couples (group_start_index, group_size) that describes
-    the specified Board.
-    Examples:
-    Board       Returned list
-    ||||||||||  [(0, 10)] (a group of 10 sticks starting at index 0)
-    |||-||||||  [(0, 3), (4, 6)]
-    |||-|---||  [(0, 3), (4, 1), (8, 2)]
-    --|-|---||  [(2, 1), (4, 1), (8, 2)]
-    """
-    return _process(board)[1]
-
-
-def _build_move(board, take, group_size, offset=0):
-    # TODO change to _list_moves
-    """Returns a Move that removes @take sticks in a group of @group_size
-    sticks, and leaving @offset sticks at the edge of said group.
-    If such a Move does not exist on the specified board, returns None.
-    Example:
-    With a board b represented by |||-||||||, calling _build_move(b, 3, 6, 1)
-    means we want to take 3 sticks, one stick away from the edge of a 6-stick
-    group.
-    Returned value: Move(5, 8). Playing this move removes sticks at indices 5
-    to 7 included: |||-|xxx||.
-    """
-    if take + offset > group_size:
-        return None
-    groups = _to_groups(board)
-    for i_start, size in groups:
-        if size == group_size:
-            left = i_start + offset
-            right = left + take
-            return Move(left, right)
-    else:  # No group was found with the right size
-        return None
-
-
-# ====================== Configuration related functions ======================
 
 # Table of all possible configurations (up to some maximum number of sticks)
 # _configs[n] is the table of n-stick configs
@@ -411,9 +312,6 @@ def _winning_message_about(config, target):
     return random.choice(messages)
 
 
-# =============================== Main functions ===============================
-
-
 def set_rules(settings):
     """Defines the settings that the module is going to use when asked to play
     moves. Needs to be called at least once before generate_moves can be called.
@@ -453,7 +351,7 @@ def generate_move(game):
     if game.settings.board_size != _settings.board_size \
             or game.settings.max_take != _settings.max_take:
         raise ValueError("Inconsistent settings between the AI and the game")
-    config = _to_config(game.board)
+    config = game.board.to_config()
     targets = _reachable_losing_configs(config)
     if targets is None:
         raise Exception("This board was not studied. There was probably an "
@@ -473,4 +371,5 @@ def generate_move(game):
         take = random.randint(1, min(game.settings.max_take, group))
         offset = random.randint(0, group - take)
         message = _losing_message_about(config)
-    return _build_move(game.board, take, group, offset), message
+    move = random.choice(game.board.list_moves(take, group, offset))
+    return move, message

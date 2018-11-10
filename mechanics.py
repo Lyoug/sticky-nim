@@ -1,5 +1,24 @@
 ﻿"""Common module for the Sticky-Nim game
     Describes the Board, Move, Player, Settings and Game classes.
+
+    Definition: a Configuration or config for short is a list of (decreasing)
+    integers, that summarizes a game situation. Each integer represents a group
+    of adjacent sticks.
+    Example game:
+    (For a more detailed commentary of this game, see the main module,
+    sticky_nim_console.py)
+    ===========================================
+    Player  →  Board       Configuration
+    ===========================================
+       -    →  ||||||||||  [10]
+       1    →  |||-||||||  [6, 3]
+       2    →  |||-|---||  [3, 2, 1]
+       1    →  --|-|---||  [2, 1, 1]
+       2    →  --|-|---|-  [1, 1, 1]
+       1    →  --|-|-----  [1, 1]
+       2    →  ----|-----  [1]
+       1    →  ----------  []  →  Player 1 lost
+    ===========================================
 """
 
 # TODO test du module?
@@ -128,20 +147,87 @@ class Board(Sequence):
             return self._slots[item]
 
     def __len__(self):
-        """Returns the number of sticks that this Board can contain.
-        """
+        """Returns the number of sticks that this Board can contain."""
         return len(self._slots)
 
     def reset(self):
-        """Fills this Board with sticks.
-        """
+        """Fills this Board with sticks."""
         for i in range(len(self._slots)):
             self._slots[i] = self.a_stick
 
     def is_empty(self):
-        """Returns True if this Board only contains gaps.
-        """
+        """Returns True if this Board only contains gaps."""
         return self.a_stick not in self._slots
+
+    def _process(self):
+        """Computes and returns to_config() and to_groups() as a duple.
+        See to_config() and to_groups() below."""
+        config = []
+        groups = []
+        group_size = 0
+        group_start = 0
+        # Adding an extra slot at the end of the board avoids duplicated code
+        # after the for loop below
+        extended_board = __class__.from_string(str(self) + Board.gap_char)
+        for i, slot in enumerate(extended_board):
+            if slot == extended_board.a_stick:
+                if group_size == 0:
+                    group_start = i
+                group_size += 1
+            else:
+                if group_size > 0:  # we've reached the end of a group of sticks
+                    config.append(group_size)
+                    groups.append((group_start, group_size))
+                    group_size = 0
+        config.sort(reverse=True)
+        return config, groups
+
+    def to_config(self):
+        """Returns the configuration that summarizes this Board.
+        (See the AI module for a definition of configurations.)
+        Examples:
+        Board       Configuration
+        ||||||||||  [10]
+        |||-||||||  [6, 3]
+        |||-|---||  [3, 2, 1]
+        --|-|---||  [2, 1, 1]
+        """
+        return self._process()[0]
+
+    def to_groups(self):
+        """Returns a list of couples (group_start_index, group_size) that
+        describes this Board.
+        Examples:
+        Board       Returned list
+        ||||||||||  [(0, 10)] (a group of 10 sticks starting at index 0)
+        |||-||||||  [(0, 3), (4, 6)]
+        |||-|---||  [(0, 3), (4, 1), (8, 2)]
+        --|-|---||  [(2, 1), (4, 1), (8, 2)]
+        """
+        return self._process()[1]
+
+    def list_moves(self, take, group_size, offset=0):
+        """Returns the (possibly empty) list of all Moves on this Board that
+        remove @take sticks in a group of @group_size sticks, leaving @offset
+        sticks at the edge of said group.
+        Example:
+        With a board b represented by '|||-|||||-', calling
+        b.list_moves(2, 5, 1) means we want to find moves that take 2 sticks,
+        one stick away from the edge of a 5-stick group.
+        Returned list: [Move(5, 7), Move(6, 8)]
+        Play Move(5, 7) and the Board becomes '|||-|--||-', or
+        play Move(6, 8) and the Board becomes '|||-||--|-'.
+        """
+        if take + offset > group_size:
+            return None
+        groups = self.to_groups()
+        fitting_moves = []
+        for i_start, size in groups:
+            if size == group_size:
+                take_starts = [i_start + offset, i_start + size - offset - take]
+                for i in set(take_starts):  # set removes a possible duplicate
+                    fitting_moves.append(Move(i, i + take))
+        return fitting_moves
 
     def play_move(self, move):
         """Plays the specified move, i.e. removes all the sticks in the slice
