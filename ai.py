@@ -83,11 +83,9 @@ def _process(board):
     group_start = 0
     # Adding an extra slot at the end of the board avoids duplicated code after
     # the for loop below
-    extended_board = Board.from_list(board._slots + [board.a_gap],
-                                     board.a_stick,
-                                     board.a_gap)
+    extended_board = Board.from_string(str(board) + Board.gap_char)
     for i, slot in enumerate(extended_board):
-        if slot == board.a_stick:
+        if slot == extended_board.a_stick:
             if group_size == 0:
                 group_start = i
             group_size += 1
@@ -126,6 +124,7 @@ def _to_groups(board):
 
 
 def _build_move(board, take, group_size, offset=0):
+    # TODO change to _list_moves
     """Returns a Move that removes @take sticks in a group of @group_size
     sticks, and leaving @offset sticks at the edge of said group.
     If such a Move does not exist on the specified board, returns None.
@@ -319,6 +318,7 @@ def _losing_message_about(losing_config):
         ]
         # if the game was winnable in one move
         if _settings.max_take >= _settings.board_size - 1:
+            # must be the same size as messages
             additional_comments = [
                 "(Already?)",
                 "(Wasn’t that a little short?)",
@@ -326,8 +326,9 @@ def _losing_message_about(losing_config):
                 "(But I wonder if you really deserve that?)",
                 "(Or are you?)"
             ]
-            return random.choice([' '.join([message, comment]) \
-                for message, comment in zip(messages, additional_comments)])
+            return random.choice([' '.join([message, comment])
+                                  for message, comment
+                                  in zip(messages, additional_comments)])
         else:
             return random.choice(messages)
     # only an odd number of groups of 1 (= rather obvious incoming defeat)
@@ -472,226 +473,4 @@ def generate_move(game):
         take = random.randint(1, min(game.settings.max_take, group))
         offset = random.randint(0, group - take)
         message = _losing_message_about(config)
-    # TODO add CHATTINESS setting?
-    if random.random() > 1:
-        message = ""
     return _build_move(game.board, take, group, offset), message
-
-
-# =============================== Module testing ===============================
-
-
-def _to_board(config, board_size=None, shuffle=False):
-    """Returns a Board containing all the groups in @config, separated with an
-    empty slot. If @board_size is specified, adds empty slots at the right end
-    of the board. Raises ValueError if board_size is too small to contain the
-    specified config.
-    By default, @config’s group are laid on the board from largest to smallest.
-    Set @shuffle to True if you want the groups to be randomly shuffled on the
-    board."""
-    # Necessary room: all the sticks, plus empty slots in between the groups
-    min_size = sum(config) + len(config) - 1
-    if board_size is None:
-        board_size = min_size
-    elif board_size < min_size:
-        raise ValueError(f"The configuration {str(config)} does not fit on a "
-            f"board of size {board_size}")
-    # no else
-
-    conf = config[:]
-    if shuffle:
-        random.shuffle(conf)
-
-    slots = []
-    gap = 0
-    stick = 1
-    for group in conf:
-        slots.extend([stick] * group + [gap])
-    # remove the extra gap
-    slots.pop()
-    # add possible extra empty slots
-    slots.extend([gap] * (board_size - len(slots)))
-    return Board.from_list(slots, stick, gap)
-
-
-def _sizeof_configs():
-    """Returns how many configurations are stored in the global _configs table.
-    """
-    n_configs = 0
-    for n in range(1, len(_configs)):
-        for k in range(1, n + 1):
-            n_configs += len(_configs[n][k])
-    return n_configs
-
-
-def _composite(config1, config2):
-    """Returns a new configuration made of @config1’s and @config2’s groups.
-    """
-    return sorted(config1 + config2, reverse=True)
-
-
-def _contains(config, sub_config):
-    """Returns True if all the groups of @sub_config are found in @config.
-    """
-    for group in sub_config:
-        if config.count(group) < sub_config.count(group):
-            return False
-    return True
-
-
-def _prune_losing_configs(losing_configs):
-    """Returns the list of known losing configurations, barring:
-    - Configs ending with a pair or pairs of 1
-    - Configs made up of several losing sub-configs
-    """
-    pruned_losing_configs = []
-
-    for c in losing_configs:
-        pruned = c[:]
-        # 1-group and 2-group configs are all included
-        if len(pruned) <= 2:
-            pruned_losing_configs.append(pruned)
-            continue
-        # ignore configs made of 1s only
-        # pruned[0] is the largest group. If it is 1, all groups are 1s
-        if pruned[0] == 1:
-            continue
-
-        # start with deleting final pairs of 1s
-        n_1 = pruned.count(1)
-        if n_1 > 1:
-            to_remove = n_1 - n_1 % 2
-            del pruned[-to_remove:]
-        # then delete losing sub-configs, provided the resulting config remains
-        # losing
-        for lc in pruned_losing_configs[1:]:
-            while _contains(pruned, lc):
-                # try to delete lc
-                without_lc = pruned[:]
-                for group in lc:
-                    without_lc.remove(group)
-                # if the result is still losing, confirm deletion
-                if without_lc == [] or without_lc in losing_configs:
-                    pruned = without_lc
-                else:       # without_lc is winning
-                    break   # go to the next LC
-            # the config was only made of losing sub-configs
-            if pruned == []:
-                break
-        # all losing sub-configs have been removed from pruned. If pruned is
-        # still not empty, add it to the main list
-        if pruned != []:
-            pruned_losing_configs.append(pruned)
-    return pruned_losing_configs
-
-
-def _usage():
-    print("Usage :\n"
-          "    python", sys.argv[0], "board_size [max_take]\n"
-          "    if unspecified, max_take defaults to 3")
-
-
-if __name__ == "__main__":
-    import sys
-    import time
-
-    SCREEN_WIDTH = 80
-
-    if len(sys.argv) < 2:
-        _usage()
-        quit()
-    try:
-        _settings.board_size = int(sys.argv[1])
-    except ValueError:
-        _usage()
-        quit()
-    try:
-        _settings.max_take = int(sys.argv[2])
-    # TODO handle ValueError and IndexError
-    except:
-        _settings.max_take = 3
-
-    print(" Sticky-Nim ==== AI Test ".center(SCREEN_WIDTH, '='))
-    print("    Board size: ", _settings.board_size, "sticks")
-    print("    Max take:   ", _settings.max_take, "sticks per turn")
-    t = time.clock()
-    set_rules(_settings)
-    t_init = round((time.clock() - t) * 1000, 1)  # milliseconds
-    main_losing_configs = _prune_losing_configs(_losing_configs)
-
-    print(" Configurations ".center(SCREEN_WIDTH, '-'))
-    for n in range(1, len(_configs)):
-        print('-' * 10, n, "sticks", '-' * 10)
-        for k in range(1, n + 1):
-            lk = _configs[n][k]
-            for config in lk:
-                print(config, end = ' ')
-            print()
-    print(" Losing configurations ".center(SCREEN_WIDTH, '-'))
-    for config in _losing_configs:
-       print(config)
-    print(" Main losing configurations ".center(SCREEN_WIDTH, '-'))
-    for config in main_losing_configs:
-        print(config)
-
-    print("-" * SCREEN_WIDTH)
-    total = _sizeof_configs()
-    losing = len(_losing_configs)
-    print(f"Configurations: {total}")
-    print(f"Losing configurations: {losing} ({round(losing / total * 100, 2)}"
-          f" %) (built in {t_init} ms)")
-    print(f"Main losing configurations: {len(main_losing_configs)}")
-    print("-" * SCREEN_WIDTH)
-
-    test_configs = [
-        [_settings.board_size],
-        [3, 2, 1],
-        [6, 5, 4, 4, 2, 1],
-        [6, 5, 2, 1],
-        [6, 4, 2],
-        [5, 4, 1],
-        [21, 1],
-        [21, 5],
-    ]
-    test_configs.extend([[18 - n, n] for n in range(1, 10)])
-    test_configs.extend([_composite([n, n], [5, 1]) for n in range(1, 11)])
-
-    for config in test_configs:
-        print(config, "->", end=' ')
-        if sum(config) > _settings.board_size:
-            print("(unknown)")
-            continue
-        solutions = _reachable_losing_configs(config)
-        if solutions == []:
-            print("losing")
-        else:
-            print(solutions)
-
-    print("-" * SCREEN_WIDTH)
-    test_boards = [Board.from_list(list(b), "l", "-") for b in [
-        "",
-        "-",
-        "l",
-        "-----",
-        "lllll",
-        "-llll",
-        "llll-",
-        "l-lll",
-        "ll-ll",
-        "l-l-l",
-    ]]
-    print("Board, Configuration, Groups")
-    for board in test_boards:
-        config, groups = _process(board)
-        print(board, config, groups, sep=', ')
-
-    for config in test_configs:
-        board = _to_board(config, shuffle=True)
-        config_back = _to_config(board)
-        if config_back != config:
-            print("Incorrect conversion:")
-            print("    starting config:", config)
-            print("    board:", board)
-            print("    resulting config:", config_back)
-
-    print("=" * SCREEN_WIDTH)

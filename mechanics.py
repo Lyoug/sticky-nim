@@ -12,13 +12,27 @@ class Board(Sequence):
     a line of slots. Each slot contains a stick at first. During a game, players
     take turns removing some of the sticks, leaving empty slots on the board
     called gaps.
-    Attributes:
-    - a_stick: value representing a stick on the board.
-    - a_gap: value representing an empty slot on the board.
-    - slots: the contents of the board. A list containing only sticks or gaps
-      (i.e. instances of a_stick or a_gap).
     """
-    def __init__(self, size, slots=None, a_stick=1, a_gap=0):
+
+    _DEFAULT_STICK_CHAR = '|'
+    _DEFAULT_GAP_CHAR = '-'
+
+    # Text representation of sticks and gaps, used when printing Boards.
+    # They can only be one character long
+    stick_char = _DEFAULT_STICK_CHAR
+    gap_char = _DEFAULT_GAP_CHAR
+
+    def __init__(self, size, slots=None, a_stick=None, a_gap=None):
+        """Arguments:
+        @a_stick: value representing a stick on the board.
+        @a_gap: value representing an empty slot on the board.
+        @slots: the contents of the board. A list containing only sticks or gaps
+        (i.e. instances of a_stick or a_gap).
+        """
+        if a_stick is None:
+            a_stick = 1
+        if a_gap is None:
+            a_gap = 0
         if slots is None:
             self._slots = [a_stick] * size
         else:
@@ -36,32 +50,50 @@ class Board(Sequence):
     def from_list(cls, slots, a_stick, a_gap):
         """Creates and returns a Board whose content is described by the list
         @slots. This list should contain only @a_stick and @a_gap."""
+        if not isinstance(slots, list):
+            raise TypeError(f"list was expected, got {type(slots)}")
         return cls(len(slots), slots, a_stick, a_gap)
 
-    def __eq__(self, other):
-        """Returns True if the specified Boards are the same length and contain
-        sticks and gaps at the same spots."""
-        return str(self) == str(other)
+    @classmethod
+    def from_string(cls, string, a_stick=None, a_gap=None):
+        """Creates and returns a Board from its string representation, for
+        instance "|--|-||-||".
+        @string should only contain a_stick and/or a_gap. If they’re not
+        specified, @string should only contain stick_char and/or gap_char.
+        """
+        if not isinstance(string, str):
+            raise TypeError(f"str was expected, got {type(string)}")
+        if a_stick is None:
+            a_stick = cls.stick_char
+        if a_gap is None:
+            a_gap = cls.gap_char
+        return cls(len(string), list(string), a_stick, a_gap)
 
     def __repr__(self):
         return f"{self._slots} (sticks: {self.a_stick}, gaps: {self.a_gap})"
 
     def __str__(self):
-        """Example board representation:
+        """Example typical board representation:
         ||-|||--|
-        '|' are sticks, '-' are gaps.
+        where '|' are sticks and '-' are gaps.
         """
         board = []
         for s in self._slots:
             if s == self.a_stick:
-                board.append('|')
+                board.append(self.stick_char)
             elif s == self.a_gap:
-                board.append('-')
+                board.append(self.gap_char)
             else:
                 raise ValueError("Board contains unknown value "
                                  f"{str(s)} instead of {str(self.a_stick)} "
                                  f"or {str(self.a_gap)}")
         return ''.join(board)
+
+    def __eq__(self, other):
+        """Returns True if the specified Boards are the same length and contain
+        sticks and gaps at the same spots, i.e. if they have the same string
+        representation."""
+        return str(self) == str(other)
 
     def __iter__(self):
         self.iter_index = -1
@@ -109,7 +141,7 @@ class Board(Sequence):
     def is_empty(self):
         """Returns True if this Board only contains gaps.
         """
-        return not self.a_stick in self._slots
+        return self.a_stick not in self._slots
 
     def play_move(self, move):
         """Plays the specified move, i.e. removes all the sticks in the slice

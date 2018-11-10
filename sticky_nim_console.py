@@ -44,6 +44,9 @@ DEFAULT_MAX_TAKE = 3
 # possibly long time to load
 LARGE_BOARD_WARNING = 27
 
+# Percentage indicating how often the AI’s comments are displayed
+AI_CHATTINESS = 100
+
 # The board typically contains about 20 sticks. This interface is limited to
 # 62 sticks, labeled a-z, then A-Z, then 0-9 (26 + 26 + 10 = 62).
 # This is more than enough since the game does not get much more interesting
@@ -99,8 +102,7 @@ allowed to take every turn can be customized. Current settings:""")
 
 
 def display_help():
-    """Display the list of available commands.
-    """
+    """Display the list of available commands."""
     print(" Sticky-Nim ---- Help ".center(SCREEN_WIDTH, '-'))
     print("""General commands:
     new       Start a new game
@@ -148,8 +150,7 @@ def display_board(board):
 
 def really_input(prompt=""):
     """Trims and returns the first user input that does not consist of only
-    whitespace.
-    """
+    whitespace."""
     while True:
         s = input(prompt).strip()
         if s != "":
@@ -329,15 +330,14 @@ def computer_action(player, game):
             action = "IndexError"
         raise Exception(f"Incorrect move from the AI: "
                         f"[{move.left}, {move.right}] ({action})")
-    if message != "":
+    if random.random() <= AI_CHATTINESS / 100:
         print(message, end=' ')
     print(to_action(move))
     return move
 
 
 def change_settings(current_settings):
-    """Makes the user input new settings for future games and returns them.
-    """
+    """Makes the user input new settings for future games and returns them."""
     print("Current settings:")
     print(f"    Board size  : {current_settings.board_size}")
     print(f"    Maximum take: {current_settings.max_take} sticks per turn")
@@ -376,9 +376,23 @@ def choose_players(settings):
     players = []
     p = 0
     while p < 2:
-        print(f"Player {p + 1}: human or computer? (h/c)", end=' ')
-        s = really_input().lower()
-        if s == 'c':
+        while True:
+            print(f"Player {p + 1}: human or computer? (h/c)", end=' ')
+            s = really_input().lower()
+            if s in ('h', 'c'):
+                break
+            elif s.startswith('h'):
+                s = 'h'
+                print("Ah, definitely human then")
+                break
+            elif s.startswith('c'):
+                print("Did you mean c?")
+            else:
+                warn_unknown_command()
+
+        if s == 'h':
+            players.append(Player(f"Player {str(p + 1)}", human_action))
+        else:
             if ai.loading_needed(settings):
                 if settings.board_size > LARGE_BOARD_WARNING:
                     print("Warning: the board is large, there might be a long "
@@ -388,22 +402,20 @@ def choose_players(settings):
                 print("Loading…")
             ai.set_rules(settings)
             ai_names = [
+                "Tin can",
+                "Metal-box",
+                "Recycled dishwasher",
+                "Circuit board",
+                "Machine",
+                "Old PC",
                 "Computer",
                 "Robot",
-                "Machine",
                 "A.I.",
-                "Metal-box",
-                "Circuit board",
-                "Old PC",
                 "Nim-device",
+                "Omniscience",
             ]
             ai_name = f"{random.choice(ai_names)} {str(p + 1)}"
             players.append(Player(ai_name, computer_action))
-        else:
-            # TODO use startswith
-            if s != 'h':
-                print("Ah, definitely human then")
-            players.append(Player(f"Player {str(p + 1)}", human_action))
         p += 1
     return players
 
