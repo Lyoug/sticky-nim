@@ -1,30 +1,6 @@
 ﻿"""Artificial intelligence module for the Sticky-Nim game.
 
-    Some more definitions about Configurations:
-
-    An n-stick k-group Configuration is a configuration made of n sticks total,
-    that are divided into k groups. For instance, [6, 3] is a 9-stick 2-group
-    config.
-
-    A Losing Configuration (LC) is a configuration such that if it is my turn to
-    play and I see this configuration on the board, I am bound to lose –
-    provided that my opponent makes no mistake.
-    Some LC examples:
-    - [1]: if I see this on my turn, I can only take the last stick: I lose
-      right away.
-    - [1, 1, 1]: I can only take one stick, leaving my opponent with [1, 1].
-      Then, they can only take one stick, leaving me with [1]. I lose.
-    - [2, 2]: I have two possible moves:
-      - if I take one stick (from any group of two), my opponent sees [2, 1],
-        takes the group of 2, and I am left with the last stick.
-      - if I take two sticks, my opponent sees [2], takes one stick from this
-        last group, and leaves me with [1].
-      In both cases I lose, so [2, 2] is an LC.
-    It can be noted that any configuration that is not losing is a winning
-    configuration.
-
-    --------------------------------- Strategy ---------------------------------
-
+    Strategy:
     The idea to guarantee a win is to play a move that leaves your opponent in
     a losing configuration (LC). This AI module thus first builds the list of
     all possible LCs. Then, when asked for a move to play on a given board, it
@@ -63,6 +39,8 @@ _losing_configs = []
 # max_take, so that they need not be recomputed when changing settings.
 # keys: max_take
 # values: (board_size, _losing_configs)
+# A list of losing configs that was built using a given board size can be used
+# for all smaller board sizes.
 _losing_backup = {}
 
 
@@ -344,7 +322,7 @@ def loading_needed(settings):
 def generate_move(game):
     """Returns a pair containing:
     - a Move
-    - a string about the move or the status of the game, intended as a comment
+    - a string about this move or the status of the game, intended as a comment
       from the AI player about the situation, for the user interface to display.
     Requires that set_rules has been called before.
     """
@@ -366,7 +344,8 @@ def generate_move(game):
         # Let’s generate a random move. We need:
         # - a group to touch
         # - a number of sticks to take from this group
-        # - a number of sticks to leave on the edge of the group
+        # - an offset: do we take sticks somewhere in the middle of the group,
+        #   or at its edge?
         group = random.choice(config)
         take = random.randint(1, min(game.settings.max_take, group))
         offset = random.randint(0, group - take)

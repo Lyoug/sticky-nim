@@ -40,7 +40,8 @@ def to_board(config, board_size=None, shuffle=False):
 
 
 def sizeof_configs():
-    """Returns how many configurations are stored in the global _configs table.
+    """Returns how many configurations are stored in the global _configs table
+    of the ai module.
     """
     n_configs = 0
     for n in range(1, len(ai._configs)):
@@ -50,14 +51,12 @@ def sizeof_configs():
 
 
 def composite(config1, config2):
-    """Returns a new configuration made of @config1’s and @config2’s groups.
-    """
+    """Returns a new configuration made of @config1’s and @config2’s groups."""
     return sorted(config1 + config2, reverse=True)
 
 
 def contains(config, sub_config):
-    """Returns True if all the groups of @sub_config are found in @config.
-    """
+    """Returns True if all the groups of @sub_config are found in @config."""
     for group in sub_config:
         if config.count(group) < sub_config.count(group):
             return False
@@ -66,7 +65,7 @@ def contains(config, sub_config):
 
 def prune_losing_configs(losing_configs):
     """Returns the list of known losing configurations, barring:
-    - Configs ending with a pair or pairs of 1
+    - Configs ending with a pair or several pairs of 1s
     - Configs made up of several losing sub-configs
     """
     pruned_losing_configs = []
@@ -208,12 +207,12 @@ if __name__ == "__main__":
     ]]
     print("Board, Configuration, Groups")
     for board in test_boards:
-        config, groups = ai._process(board)
+        config, groups = board._process()
         print(board, config, groups, sep=', ')
 
     for config in test_configs:
         board = to_board(config, shuffle=True)
-        config_back = ai._to_config(board)
+        config_back = board.to_config()
         if config_back != config:
             print("Incorrect conversion:")
             print("    starting config:", config)

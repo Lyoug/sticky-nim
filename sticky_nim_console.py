@@ -1,32 +1,4 @@
-"""Sticky-Nim - Console version
-
-    This 2-player game is a variant of the game of Nim.
-    - Start with a line of sticks: ||||||||||
-    - On your turn, you may take up to 3 sticks from the line, anywhere you
-      want, but they need to be next to each other.
-    - Whoever takes the last stick loses.
-
-    Example game:
-    ========================================================================
-    Player  Action                           →  Board
-    ========================================================================
-            (Start)                          →  ||||||||||
-       1    Takes one stick                  →  |||-||||||
-       2    Takes three sticks               →  |||-|---||
-       1    Takes two sticks                 →  --|-|---||
-       2    Takes one stick                  →  --|-|---|-
-       1    Cannot take more than one stick  →  --|-|-----
-       2    Doesn't have a choice either     →  ----|-----
-       1    Has to take the last one         →  ----------  →  Player 1 lost
-    ========================================================================
-
-    The starting quantity of sticks and the maximum number of sticks you are
-    allowed to take every turn can be customized.
-
-    Example of an illegal move:
-    Say the board looks like '|||-|-||||'. You cannot take these two marked
-    sticks '|||-x-x|||' because they are not next to each other.
-"""
+"""Sticky-Nim - Console interface"""
 
 import random
 
@@ -111,7 +83,7 @@ def display_help():
     help      Display this help
     quit      Close Sticky-Nim
 In-game commands:
-    xy        Take sticks from x to y
+    [xy]      Take sticks from slots x to y on the board
     board     Redisplay the board
     menu      Go back to the main menu""")
     # additional purposefully undocumented in-game commands:
@@ -126,7 +98,9 @@ def display_board(board):
     < | | - | | | | - - | | | | | | | - - - | >
       a b   d e f g     j k l m n o p       t
 
-    The '|' are the remaining sticks, the '-' are the empty slots.
+    The '|' are the remaining sticks, the '-' are the empty slots. The letters
+    below are the coordinates that a player must type to choose which sticks to
+    remove.
     If the board is too large to fit on screen, the space in between every slot
     is not printed.
     """
@@ -274,7 +248,7 @@ def errors_about_move(move, game):
 
 def human_action(player, game):
     """Returns the Move that the specified human player wishes to play in the
-    specified Game.
+    specified Game. This function must ensure that the returned Move is legal.
     Allows the human to perform other commands before actually playing, like
     displaying help, rules, stopping the game, etc.
     """
@@ -341,7 +315,7 @@ def human_action(player, game):
 
 def computer_action(player, game):
     """Returns the Move that the specified AI player wishes to play in the
-    specified Game.
+    specified Game.  This function must ensure that the returned Move is legal.
     Displays the possible message that this player wants to say, as well as the
     move’s coordinates.
     """
@@ -447,9 +421,9 @@ def choose_players(settings):
 
 
 def new_game(players, settings):
-    """Lets the specified Players play a game. @players is a list of two Player.
-    TODO type annotation
-    Returns True if the players wish to start another game right away.
+    """Lets the specified Players play a game. @players is a list of two Player
+    instances. Returns True if the players wish to start another game right
+    away.
     """
     game = Game(players, settings)
     try:

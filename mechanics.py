@@ -1,27 +1,7 @@
 ﻿"""Common module for the Sticky-Nim game
     Describes the Board, Move, Player, Settings and Game classes.
-
-    Definition: a Configuration or config for short is a list of (decreasing)
-    integers, that summarizes a game situation. Each integer represents a group
-    of adjacent sticks.
-    Example game:
-    (For a more detailed commentary of this game, see the main module,
-    sticky_nim_console.py)
-    ===========================================
-    Player  →  Board       Configuration
-    ===========================================
-       -    →  ||||||||||  [10]
-       1    →  |||-||||||  [6, 3]
-       2    →  |||-|---||  [3, 2, 1]
-       1    →  --|-|---||  [2, 1, 1]
-       2    →  --|-|---|-  [1, 1, 1]
-       1    →  --|-|-----  [1, 1]
-       2    →  ----|-----  [1]
-       1    →  ----------  []  →  Player 1 lost
-    ===========================================
 """
 
-# TODO test du module?
 
 from collections import Sequence
 
@@ -43,8 +23,8 @@ class Board(Sequence):
 
     def __init__(self, size, slots=None, a_stick=None, a_gap=None):
         """Arguments:
-        @a_stick: value representing a stick on the board.
-        @a_gap: value representing an empty slot on the board.
+        @a_stick: internal value representing a stick on the board.
+        @a_gap: internal value representing an empty slot on the board.
         @slots: the contents of the board. A list containing only sticks or gaps
         (i.e. instances of a_stick or a_gap).
         """
@@ -78,7 +58,8 @@ class Board(Sequence):
         """Creates and returns a Board from its string representation, for
         instance "|--|-||-||".
         @string should only contain a_stick and/or a_gap. If they’re not
-        specified, @string should only contain stick_char and/or gap_char.
+        specified, @string should only contain cls.stick_char and/or
+        cls.gap_char.
         """
         if not isinstance(string, str):
             raise TypeError(f"str was expected, got {type(string)}")
@@ -151,12 +132,13 @@ class Board(Sequence):
         return len(self._slots)
 
     def reset(self):
-        """Fills this Board with sticks."""
+        """Fills this Board with sticks, making it ready for a new game."""
         for i in range(len(self._slots)):
             self._slots[i] = self.a_stick
 
     def is_empty(self):
-        """Returns True if this Board only contains gaps."""
+        """Returns True if this Board only contains gaps. Typically called to
+        check whether a game has ended."""
         return self.a_stick not in self._slots
 
     def _process(self):
@@ -183,15 +165,8 @@ class Board(Sequence):
         return config, groups
 
     def to_config(self):
-        """Returns the configuration that summarizes this Board.
-        (See the AI module for a definition of configurations.)
-        Examples:
-        Board       Configuration
-        ||||||||||  [10]
-        |||-||||||  [6, 3]
-        |||-|---||  [3, 2, 1]
-        --|-|---||  [2, 1, 1]
-        """
+        """Returns the configuration (see the readme) that summarizes this
+        Board."""
         return self._process()[0]
 
     def to_groups(self):
@@ -232,8 +207,9 @@ class Board(Sequence):
     def play_move(self, move):
         """Plays the specified move, i.e. removes all the sticks in the slice
         [move.left:move.right] of this Board.
-        Returns True if the slice contained only sticks (i.e. the move is
-        probably legal), False if there was any gap in the slice.
+        Returns True if the slice contained only sticks (the move was probably
+        legal), False if there were any gaps in the slice (the move was
+        definitely illegal).
         """
         move_contained_gap = False
         for i in range(move.left, move.right):
@@ -248,9 +224,9 @@ class Move:
     Attributes:
     - left
     - right
-    For some Move m and some Board b, b[m.left:m.right] is the slice of b where
-    sticks are to be taken from (that is, from b[m.left] included, to
-    b[m.right - 1] included).
+    For some Move m and some Board b, b[m.left:m.right] or simply b[m] is the
+    slice of b where sticks are to be taken from (that is, from b[m.left]
+    included, to b[m.right - 1] included).
 
     left should always be less than right. Using negative indices may result in
     undefined behavior.
@@ -260,6 +236,10 @@ class Move:
         self.right = max(index_1, index_2)
 
     def __repr__(self):
+        """A Move is represented in a way similar to how slices are used. For
+        instance, a Move with attributes left = 4 and right = 6 is printed as
+        '[4:6]'.
+        """
         return f"[{self.left}:{self.right}]"
 
     def __len__(self):
@@ -269,6 +249,8 @@ class Move:
         return self.right - self.left
 
     def __eq__(self, other):
+        """Returns True if both Moves have the same left and right attributes,
+        or if they are both None."""
         if self is None:
             return other is None
         else:
@@ -279,16 +261,15 @@ class Move:
         """Returns True if this Move’s indices are out of the specified Board’s
         boundaries.
         Example:
-        Board b: "<||||>" (length 4)
-        Move m1: [m1.left, m1.right] = [2, 4]
-        Move m2: [m2.left, m2.right] = [2, 5]
+        Board b: |||| (length 4)
+        Move m1: [2:4]
+        Move m2: [2:5]
         m1 is legal on b, but m2 is out of bounds.
         """
         return self.left < 0 or self.right > len(board)
 
     def contains_gap_on(self, board):
-        """Returns True if the slice of the specified Board contains a gap.
-        """
+        """Returns True if the slice of the specified Board contains a gap."""
         return board.a_gap in board[self.left:self.right]
 
     def takes_too_many_for(self, max_take):
@@ -307,15 +288,16 @@ class Move:
         """Returns a new Move that is stripped of any gaps that the specified
         Board may contain at the edges of this Move. If this Move contains only
         gaps, returns None.
+
         Example on a board b that looks like "|-|-||--|":
+        m = Move(1, 8)
         # m is about this slice of b:
         # |-|-||--|
         #  xxxxxxx
-        m = Move(1, 8)
+        m.strip_on(b)
         # returns Move(2, 6), i.e. this slice in b:
         # |-|-||--|
         #   xxxx
-        m.strip_on(b)
         """
         if board.a_stick not in board[self.left:self.right]:
             return None
@@ -334,7 +316,6 @@ class Player:
     - action: a function that takes a Player and a Game, and returns the Move
       that the player wishes to play on the Game’s Board.
     """
-    # TODO type annotation of action_function
     def __init__(self, name, action_function):
         self.name = name
         self.action = action_function
@@ -360,7 +341,6 @@ class Game:
     - settings: contains the board size and the maximum number of sticks a
       player may take on his turn.
     """
-    # TODO type annotate players. How to specify list length?
     def __init__(self, players, settings):
         self.players = players
         self.settings = settings
@@ -378,7 +358,7 @@ class Game:
                 # the game ended, return the winner
                 return player
             move = player.ask_move(self)
-            # the interface is responsible for only providing legal moves
+            # the interface is responsible for providing legal moves only
             self.board.play_move(move)
             # switch player for next turn
             current_player = 1 - current_player
